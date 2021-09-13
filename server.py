@@ -22,26 +22,27 @@ BUFFER = int(math.pow(2, math.ceil(math.log(SIZE, 2)))) # smallest power of 2 >=
 clientList = {}
 addressList = {}
 
+def send_message(username, msg):
+	msg = pickle.dumps(f'{username} >> {msg}') # Converte a mensagem para bytes
+	header = f'{len(msg):0{HEADER}d}' # Header com o tamanho da mensagem
+
+	for key, client in clientList.items():
+		if key != username:
+			client.send(pickle.dumps(header))
+			time.sleep(0.01)
+			client.send(msg)
+
 def receive_message(client, header):
 	chunk = b''
 
-	while len(chunk) < header:
+	while len(chunk) < header: # "Consome" o header até toda a mensagem ser recebida
 		packet = client.recv(BUFFER)
 		chunk += packet 
 
 	msg = pickle.loads(chunk[:header])
 	return msg 
 
-def send_message(username, msg):
-	msg = pickle.dumps(f'{username} >> {msg}')
-	header = f'{len(msg):0{HEADER}d}'
-
-	for key, client in clientList.items():
-		if key != username:
-				client.send(pickle.dumps(header))
-				time.sleep(0.01)
-				client.send(msg)
-
+# Lógica central para recebimento e retransmissão de novas mensagens
 def communicate(username):
 	client = clientList[username]
 
@@ -50,9 +51,10 @@ def communicate(username):
 		header = int(pickle.loads(packet))
 		msg = receive_message(client, header)
 		
-		if msg == '[quit]':
+		if msg == '/quit':
 			break	
-
+		
+		print(f'{username} spoke: {msg}')
 		send_message(username, msg)
 
 	del clientList[username]
@@ -64,37 +66,29 @@ def communicate(username):
 	del addressList[username]
 	sys.exit()
 
-def send_message(username, msg):
-		msg = pickle.dumps(f'{username} >> {msg}')
-		header = f'{len(msg):0{HEADER}d}'
-
-		for key, client in clientList.items():
-			if key != username:
-				 client.send(pickle.dumps(header))
-				 time.sleep(0.01)
-				 client.send(msg)
-
 if __name__ == '__main__':
+	# Criação do socket
 	try:
-		server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-		server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+		s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+		s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 		
-		server.bind((HOST, PORT))
-		server.listen(CLIENT_LIMIT)
+		s.bind((HOST, PORT))
+		s.listen(CLIENT_LIMIT)
 		print(f'Listening on {HOST}:{PORT}')
  
 	except socket.error as e:
 		print(f'[ERROR] {e}')
 
+	# Estabelece a conexão de novos clientes
 	while True:
-			client, address = server.accept()
-			print(f'Connection established from {address}')
+		client, address = s.accept()
+		print(f'Connection established from {address}')
 
-			username = pickle.loads(client.recv(BUFFER))
-			send_message('[SERVER]', f'{username} has joined the chat')
+		username = pickle.loads(client.recv(BUFFER))
+		send_message('[SERVER]', f'{username} has joined the chat')
 
-			clientList[username] = client
-			addressList[username] = address
+		clientList[username] = client
+		addressList[username] = address
 
-			thread = Thread(target=communicate, args=(username,), daemon=True)
-			thread.start() 
+		thread = Thread(target=communicate, args=(username,), daemon=True)
+		thread.start()

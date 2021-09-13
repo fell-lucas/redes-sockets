@@ -14,91 +14,65 @@ HOST = socket.gethostbyname(os.getenv('HOST'))
 PORT = int(os.getenv('PORT'))
 HEADER = int(os.getenv('HEADER'))
 
-SIZE = len(pickle.dumps(f'{0:0{HEADER}d}'))
+SIZE = len(pickle.dumps(f'{0:0{HEADER}d}')) # '{0:0{HEADER}d}' = "0000"
 BUFFER = int(math.pow(2, math.ceil(math.log(SIZE, 2)))) # smallest power of 2 >= SIZE
 
-class Client:
+username = ""
 
-	def __init__(self, username):
-		self.client = None 
-		self.username = username
+def connect(username):
+	try:
+		#Criação e conexão do socket
+		s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+		s.connect((HOST, PORT))
+		print(f'Connected to {HOST}:{PORT}')
 
+		#Transforma em bytes e envia para o server
+		s.send(pickle.dumps(username))
 
-	def connect(self):
-		'''
-			DESC: Conecta ao servidor
-			ARGS: self
-			RETURN: None
-		'''
-		try:
-			self.client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-			self.client.connect((HOST, PORT))
-			print(f'Connected to {HOST}:{PORT}')
-			self.client.send(pickle.dumps(self.username))
+		thread = Thread(target=communicate, args=(s,), daemon=True)
+		thread.start()
 
-			thread = Thread(target=self.communicate, daemon=True)
-			thread.start()
-			self.send_messages()
+		send_messages(s)
 
-		except socket.error as e:
-			print(f'[ERROR] {e}')
+	except socket.error as e:
+		print(f'[ERROR] {e}')
 
+# Recebe os pacotes vindos do servidor, converte os bytes e printa no chat
+def communicate(s):
+	while True:
+		packet = s.recv(BUFFER)
+		header = int(pickle.loads(packet))
 
-	def send_messages(self):
-		'''
-			DESC: Envia mensagens ao servidor
-			ARGS: 
-				message (str): Mensagem a ser enviada
-			RETURN: None
-		'''
-		while True:
-			message = input(f'{self.username} >> ')
-			msg = pickle.dumps(message)
-			header = f'{len(msg):0{HEADER}d}'
+		chunk = b'' # Leitura em bytes
 
-			self.client.send(pickle.dumps(header))
-			time.sleep(0.01)
-			self.client.send(msg)
-
-			if message == '[quit]':
-				break
-
-		print('[SERVER] >> You have left the chat')
-		self.client.close()
-
-
-	def receive_message(self, header):
-		'''
-			DESC: Recebe mensagens do servidor
-			ARGS: 
-				client (socket client): Cliente que enviou a mensagem
-				header (int): Comprimento da mensagem
-			RETURN: msg (str): A mensagem em formato de texto
-		'''
-		chunk = b''
-
-		while len(chunk) < header:
-			packet = self.client.recv(BUFFER)
-			chunk += packet 
+		while len(chunk) < header: # "Consome" o header até toda a mensagem ser recebida
+			packet = s.recv(BUFFER)
+			chunk += packet
 
 		msg = pickle.loads(chunk[:header])
-		return msg 
 
+		print(f'\n{msg}\n{username} >> ', end="")
 
-	def communicate(self):
-		'''
-			DESC: Se comunica com o servidor
-			ARGS: self
-			RETURN: none
-		'''
-		while True:
-			packet = self.client.recv(BUFFER)
-			header = int(pickle.loads(packet))
+# Aguarda a entrada do usuário
+def send_messages(s):
+	while True:
+		message = input(f'{username} >> ')
+		msg = pickle.dumps(message)
 
-			msg = self.receive_message(header)
-			print(f'\n{msg}\n{self.username} >> ', end="")
+		#Define o tamanho do header
+		header = f'{len(msg):0{HEADER}d}'
+
+		#Codificação e envio da mensagem
+		s.send(pickle.dumps(header))
+		time.sleep(0.01)
+		s.send(msg)
+		
+		if message == '/quit':
+			break
+
+	print('[SERVER] >> You have left the chat')
+	s.close()
 
 if __name__ == '__main__':
 	username = input('Enter your username: ')
-	client = Client(username)
-	client.connect()
+	connect(username)

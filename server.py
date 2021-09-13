@@ -19,113 +19,82 @@ CLIENT_LIMIT = int(os.getenv('CLIENT_LIMIT'))
 SIZE = len(pickle.dumps(f'{0:0{HEADER}d}'))
 BUFFER = int(math.pow(2, math.ceil(math.log(SIZE, 2)))) # smallest power of 2 >= SIZE
 
-class Server:
+clientList = {}
+addressList = {}
 
-	def __init__(self):
-		self.clients = {}
-		self.address = {}
-		self.server = None
+def receive_message(client, header):
+	chunk = b''
 
-	def bind(self):
-		'''
-			DESC: Cria um servidor e relaciona a um IP
-			ARGS: self
-			RETURN: None
-		'''
-		try:
-			self.server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-			self.server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-			
-			self.server.bind((HOST, PORT))
-			self.server.listen(CLIENT_LIMIT)
-			print(f'Listening on {HOST}:{PORT}')
- 
-		except socket.error as e:
-			print(f'[ERROR] {e}')
+	while len(chunk) < header:
+		packet = client.recv(BUFFER)
+		chunk += packet 
 
-	def receive_message(self, client, header):
-		'''
-			DESC: Recebe mensagem de um cliente
-			ARGS: 
-				client (socket client): Cliente enviando a mensagem
-				header (int): Comprimento da mensagem
-			RETURN: msg (str): A mensagem em formato de texto
-		'''
-		chunk = b''
+	msg = pickle.loads(chunk[:header])
+	return msg 
 
-		while len(chunk) < header:
-			packet = client.recv(BUFFER)
-			chunk += packet 
+def send_message(username, msg):
+	msg = pickle.dumps(f'{username} >> {msg}')
+	header = f'{len(msg):0{HEADER}d}'
 
-		msg = pickle.loads(chunk[:header])
-		return msg 
+	for key, client in clientList.items():
+		if key != username:
+				client.send(pickle.dumps(header))
+				time.sleep(0.01)
+				client.send(msg)
 
-	def send_message(self, username, msg):
-		'''
-			DESC: Transmite a mensagem para os outros clientes
-			ARGS: 
-				msg (str): Mensagem a ser enviada 
-				username (str): Nome do usuário remetente
-			RETURN: None
-		'''
+def communicate(username):
+	client = clientList[username]
+
+	while True:
+		packet = client.recv(BUFFER)
+		header = int(pickle.loads(packet))
+		msg = receive_message(client, header)
+		
+		if msg == '[quit]':
+			break	
+
+		send_message(username, msg)
+
+	del clientList[username]
+	
+	send_message('[SERVER]', f'[{username}] has left the chat')
+	print(f'Connection with {addressList[username]} terminated')
+	client.close()
+
+	del addressList[username]
+	sys.exit()
+
+def send_message(username, msg):
 		msg = pickle.dumps(f'{username} >> {msg}')
 		header = f'{len(msg):0{HEADER}d}'
 
-		for key, client in self.clients.items():
+		for key, client in clientList.items():
 			if key != username:
 				 client.send(pickle.dumps(header))
 				 time.sleep(0.01)
 				 client.send(msg)
 
-	def communicate(self, username):
-		'''
-			DESC: Se comunica com um cliente específico
-			ARGS: 
-				username (str): Identificador do cliente
-			RETURN: None 
-		'''
-		client = self.clients[username]
-
-		while True:
-			packet = client.recv(BUFFER)
-			header = int(pickle.loads(packet))
-			msg = self.receive_message(client, header)
-			
-			if msg == '[quit]':
-				break	
-
-			self.send_message(username, msg)
-
-		del self.clients[username]
+if __name__ == '__main__':
+	try:
+		server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+		server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 		
-		self.send_message('[SERVER]', f'[{username}] has left the chat')
-		print(f'Connection with {self.address[username]} terminated')
-		client.close()
-	
-		del self.address[username]
-		sys.exit()
+		server.bind((HOST, PORT))
+		server.listen(CLIENT_LIMIT)
+		print(f'Listening on {HOST}:{PORT}')
+ 
+	except socket.error as e:
+		print(f'[ERROR] {e}')
 
-
-	def connect(self):
-		'''
-			DESC: Estabelece conexão com diferentes clientes
-			ARGS: self
-			RETURN: None 
-		'''
-		while True:
-			client, address = self.server.accept()
+	while True:
+			client, address = server.accept()
 			print(f'Connection established from {address}')
 
 			username = pickle.loads(client.recv(BUFFER))
-			self.send_message('[SERVER]', f'{username} has joined the chat')
+			send_message('[SERVER]', f'{username} has joined the chat')
 
-			self.clients[username] = client
-			self.address[username] = address
+			clientList[username] = client
+			addressList[username] = address
 
-			thread = Thread(target=self.communicate, args=(username,), daemon=True)
+			thread = Thread(target=communicate, args=(username,), daemon=True)
 			thread.start() 
-
-if __name__ == '__main__':
-	server = Server()
-	server.bind()
-	server.connect()
